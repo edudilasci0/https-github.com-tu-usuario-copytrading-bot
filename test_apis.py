@@ -1,6 +1,6 @@
 import requests
 import base64
-from solana.keypair import Keypair
+from solders.keypair import Keypair  # Cambio aquí
 
 SOLSCAN_API_URL = "https://public-api.solscan.io"
 GMGN_API_HOST = "https://gmgn.ai"
@@ -41,7 +41,7 @@ def get_swap_route(token_in, token_out, amount, wallet_address, slippage=1.0):
 
 def load_wallet(private_key_base64):
     decoded_key = base64.b64decode(private_key_base64)
-    wallet = Keypair.from_secret_key(decoded_key)
+    wallet = Keypair.from_bytes(decoded_key)  # Cambio aquí
     return wallet
 
 def test_apis():
