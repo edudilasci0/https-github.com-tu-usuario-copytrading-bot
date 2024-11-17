@@ -142,6 +142,8 @@ def main():
             daily_trade_count += 1
             print(f"Transacción copiada. Trades restantes hoy: {MAX_TRADES_PER_DAY - daily_trade_count}")
 
-
 if __name__ == "__main__":
-    main()
+    import os
+    port = int(os.environ.get("PORT", 5000))  # Render necesita que un puerto esté configurado
+    print(f"Iniciando en el puerto {port}")
+    main()  # Esto mantiene la ejecución de tu bot
