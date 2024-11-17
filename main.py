@@ -1,9 +1,10 @@
+import os
 import time
 from datetime import datetime
 import requests
-from solana.transaction import Transaction
+from solana.keypair import Keypair
 from solana.rpc.api import Client
-from solana.account import Account
+from solana.transaction import Transaction
 
 # Configuraciones iniciales
 GMGN_API_HOST = "https://gmgn.ai"
@@ -110,10 +111,28 @@ def execute_trade(wallet, token_in, token_out, amount):
     return result
 
 
+def load_wallet():
+    """
+    Carga la wallet desde una variable de entorno.
+    """
+    private_key = os.environ.get("PRIVATE_KEY")
+    if not private_key:
+        raise Exception("Clave privada no configurada. Verifica las variables de entorno.")
+
+    # Convertir clave privada base64 a bytes
+    decoded_key = base64.b64decode(private_key)
+    return Keypair.from_secret_key(decoded_key)
+
+
 def main():
     global daily_trade_count
-    wallets = load_wallets()  # Carga las wallets desde tu configuración
     print("Iniciando monitoreo de wallets...")
+
+    # Simulación: Lista de wallets a monitorear
+    wallets = [
+        {"tag": "Wallet1", "address": "HUpPyLU8KWisCAr3mzWy2FKT6uuxQ2qGgJQxyTpDoes5"},
+        {"tag": "Wallet2", "address": "71CPXu3TvH3iUKaY1bNkAAow24k6tjH473SsKprQBABC"}
+    ]
 
     for wallet in wallets:
         print(f"Monitoreando: {wallet['tag']} ({wallet['address']})")
@@ -135,15 +154,15 @@ def main():
             token_out = tx["tokenB"]
             amount = int(INITIAL_INVESTMENT * 1e9)  # Convertir USD a lamports
 
-            # Ejecutar la transacción
-            execute_trade(wallet, token_in, token_out, amount)
+            # Ejecutar la transacción (comentar si no hay wallet configurada aún)
+            # execute_trade(wallet, token_in, token_out, amount)
 
             # Incrementar el conteo diario
             daily_trade_count += 1
             print(f"Transacción copiada. Trades restantes hoy: {MAX_TRADES_PER_DAY - daily_trade_count}")
 
+
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))  # Render necesita que un puerto esté configurado
     print(f"Iniciando en el puerto {port}")
-    main()  # Esto mantiene la ejecución de tu bot
+    main()
