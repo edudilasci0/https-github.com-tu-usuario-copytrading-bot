@@ -1,10 +1,12 @@
 import time
 from datetime import datetime
-from wallets_manager import load_wallets
-from solscan_client import get_wallet_transactions, get_token_data
-from gmgn_client import get_swap_route, submit_signed_transaction
+import requests
+from solana.transaction import Transaction
+from solana.rpc.api import Client
+from solana.account import Account
 
 # Configuraciones iniciales
+GMGN_API_HOST = "https://gmgn.ai"
 MAX_TRADES_PER_DAY = 10  # Número máximo de transacciones por día
 INITIAL_INVESTMENT = 10  # USD por operación
 LIQUIDITY_MIN = 80000  # Liquidez mínima en USD
@@ -44,42 +46,73 @@ def validate_transaction(transaction, wallet_tag):
     return True
 
 
-def apply_strategy(current_price, buy_price, highest_price, position_size, wallet_action):
+def get_swap_route(token_in, token_out, amount, wallet_address, slippage=1.0):
     """
-    Aplica la estrategia de Take Profit, Stop Loss dinámico, y seguimiento de la wallet monitoreada.
+    Obtiene la mejor ruta para un swap usando la API de GMGNai.
     """
-    global TAKE_PROFIT_LEVELS, STOP_LOSS_THRESHOLD
+    url = f"{GMGN_API_HOST}/defi/router/v1/sol/tx/get_swap_route"
+    params = {
+        "token_in_address": token_in,
+        "token_out_address": token_out,
+        "in_amount": amount,
+        "from_address": wallet_address,
+        "slippage": slippage
+    }
 
-    # Manejar acciones de la wallet monitoreada
-    if wallet_action == "sell_all":
-        print(f"Wallet vendió todo. Cerrando posición.")
-        return 0  # Cerrar posición
-    elif wallet_action == "sell_partial":
-        sell_fraction = 0.5
-        sell_amount = position_size * sell_fraction
-        print(f"Wallet vendió parcialmente. Vendiendo {sell_amount:.2f} tokens.")
-        position_size -= sell_amount
+    response = requests.get(url, params=params)
+    if response.status_code != 200:
+        raise Exception(f"Error al obtener ruta de swap: {response.json()}")
+    
+    return response.json()
 
-    # Take Profit
-    gain = current_price / buy_price
-    for tp in TAKE_PROFIT_LEVELS:
-        if gain >= tp:
-            sell_amount = position_size * (tp / sum(TAKE_PROFIT_LEVELS))
-            print(f"Take Profit alcanzado: {tp}x. Vendiendo {sell_amount:.2f} tokens.")
-            position_size -= sell_amount
 
-    # Stop Loss dinámico
-    dynamic_stop_loss = highest_price * (1 - STOP_LOSS_THRESHOLD)
-    if current_price < dynamic_stop_loss:
-        print(f"Stop Loss activado: Precio actual {current_price} menor a {dynamic_stop_loss}. Vendiendo todo.")
-        return 0  # Cerrar posición
+def submit_signed_transaction(signed_tx):
+    """
+    Envía una transacción firmada a través de GMGNai.
+    """
+    url = f"{GMGN_API_HOST}/defi/router/v1/sol/tx/submit_signed_transaction"
+    payload = {
+        "signed_tx": signed_tx
+    }
 
-    return position_size
+    response = requests.post(url, json=payload)
+    if response.status_code != 200:
+        raise Exception(f"Error al enviar transacción: {response.json()}")
+    
+    return response.json()
+
+
+def sign_transaction(raw_tx, wallet):
+    """
+    Firma una transacción usando la wallet.
+    """
+    transaction = Transaction.deserialize(bytes.fromhex(raw_tx))
+    transaction.sign(wallet)
+    return transaction.serialize().hex()
+
+
+def execute_trade(wallet, token_in, token_out, amount):
+    """
+    Ejecuta un swap usando la API de GMGNai.
+    """
+    print(f"Iniciando swap: {token_in} -> {token_out}, monto: {amount}")
+    
+    # Obtener la mejor ruta de swap
+    route = get_swap_route(token_in, token_out, amount, wallet.public_key())
+    print("Ruta de swap obtenida:", route)
+
+    # Firmar la transacción
+    signed_tx = sign_transaction(route["data"]["raw_tx"]["swapTransaction"], wallet)
+    
+    # Enviar la transacción firmada
+    result = submit_signed_transaction(signed_tx)
+    print("Resultado del swap:", result)
+    return result
 
 
 def main():
     global daily_trade_count
-    wallets = load_wallets()
+    wallets = load_wallets()  # Carga las wallets desde tu configuración
     print("Iniciando monitoreo de wallets...")
 
     for wallet in wallets:
@@ -97,19 +130,13 @@ def main():
             if not validate_transaction(tx, wallet["tag"]):
                 continue
 
-            # Configuración de la operación
-            buy_price = tx["price"]
-            current_price = tx["current_price"]
-            highest_price = buy_price  # Inicializar precio más alto
-            position_size = INITIAL_INVESTMENT / buy_price  # Tamaño inicial de la posición
+            # Configurar los parámetros del trade
+            token_in = tx["tokenA"]
+            token_out = tx["tokenB"]
+            amount = int(INITIAL_INVESTMENT * 1e9)  # Convertir USD a lamports
 
-            # Aplicar estrategia
-            position_size = apply_strategy(current_price, buy_price, highest_price, position_size, tx.get("action"))
-
-            if position_size == 0:
-                print(f"Posición cerrada completamente para {wallet['tag']}.")
-            else:
-                print(f"Tamaño restante de la posición para {wallet['tag']}: {position_size} tokens.")
+            # Ejecutar la transacción
+            execute_trade(wallet, token_in, token_out, amount)
 
             # Incrementar el conteo diario
             daily_trade_count += 1
